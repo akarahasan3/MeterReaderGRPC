@@ -26,27 +26,25 @@ public class Worker : BackgroundService
             var channel = GrpcChannel.ForAddress(_serviceUrl);
             var client = new MeterReadingService.MeterReadingServiceClient(channel);
 
-            var packet = new ReadingPacket
-            {
-                Status = ReadingStatus.Success
-            };
+            var stream = client.AddReadingStream();
 
             for (var x = 0; x < 5; ++x)
             {
                 var reading = await _generator.GenerateAsync(_customerId);
-                packet.Readings.Add(reading);
+                await stream.RequestStream.WriteAsync(reading);
+                await Task.Delay(500);
             }
 
-            var status = client.AddReading(packet);
-            if(status.Status == ReadingStatus.Success)
-            {
-                _logger.LogInformation("Successfully called gRPC");
-            }
-            else
-            {
-                _logger.LogError("Failed to call gRPC");
-            }
+            await stream.RequestStream.CompleteAsync();
 
+            while (await stream.ResponseStream?.MoveNext(new CancellationToken())!)
+            {
+                // ReSharper disable once TemplateIsNotCompileTimeConstantProblem
+                _logger.LogWarning($"From server: {stream.ResponseStream?.Current.Message}");
+            }
+            
+            _logger.LogInformation("Finished calling gRPC");
+            
             await Task.Delay(5000, stoppingToken);
         }
     }

@@ -1,5 +1,4 @@
-﻿using System.Globalization;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using Grpc.Core;
 using MeterReader.gRPC;
 using MeterReaderWeb.Data;
@@ -54,6 +53,38 @@ namespace MeterReaderWeb.Services
                 Status = ReadingStatus.Failure,
                 Message = "Failed to store readings in Database"
             };
+        }
+
+        public override async Task AddReadingStream(
+            IAsyncStreamReader<ReadingMessage> requestStream, 
+            IServerStreamWriter<ErrorMessage> responseStream,
+            ServerCallContext context)
+        {
+            while (await requestStream.MoveNext())
+            {
+                var msg = requestStream.Current;
+
+                if (msg.ReadingValue < 3000)
+                {
+                    await responseStream.WriteAsync(new ErrorMessage
+                    {
+                        Message = $"Value less than 3000. Value: {msg.ReadingValue}"
+                    });
+                }
+                
+                var readingValue = new MeterReading
+                {
+                    CustomerId = msg.CustomerId,
+                    Value = msg.ReadingValue,
+                    ReadingDate = msg.ReadingTime.ToDateTime()
+                };
+                    
+                // ReSharper disable once TemplateIsNotCompileTimeConstantProblem
+                logger.LogInformation($"Adding {msg.ReadingValue} from Stream");
+                repository.AddEntity(readingValue);
+
+                await repository.SaveAllAsync();
+            }
         }
     }
 }
